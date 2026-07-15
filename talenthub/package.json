@@ -1,0 +1,14 @@
+{
+  "name": "talenthub-crm",
+  "version": "1.0.0",
+  "description": "TalentHub CRM - Hiring Assessment Project",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "seed": "cd backend && node scripts/seed.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
