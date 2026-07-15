@@ -14,13 +14,32 @@ const getCandidates = async (req, res) => {
   try {
     // INTENTIONAL ISSUE: Fetches ALL candidates with no pagination
     // INTENTIONAL ISSUE: Populates createdBy on every list request (unnecessary for list views)
-    const candidates = await Candidate.find({})
+    const page=parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page-1)*limit;
+    const [candidates,total] = await Promise.all([
+      Candidate.find({})
+      .skip(skip)
+      .limit(limit)
       .populate('createdBy', 'name email')
       .populate('assignedTo', 'name email')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 }),
+      Candidate.countDocuments({})
+    ])
+    // const candidates = await Candidate.find({})
+    //   .populate('createdBy', 'name email')
+    //   .populate('assignedTo', 'name email')
+    //   .sort({ createdAt: -1 });
 
     // INTENTIONAL ISSUE: Inconsistent response — wraps in object vs other routes return arrays directly
-    res.json({ candidates, total: candidates.length });
+    res.json({ success:true, data: candidates, 
+      pagination:{
+        totalItems:total,
+        currentPage:page,
+        totalPages:Math.ceil(total/limit),
+        itemsPerPage:limit
+      }
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -109,7 +128,7 @@ const updateCandidate = async (req, res) => {
     const updated = await Candidate.findByIdAndUpdate(
       req.params.id,
       { $set: req.body },
-      { runValidators: true }
+      { runValidators: true,new:true }
     );
 
     res.json(updated);
@@ -180,45 +199,59 @@ const getCandidateNotes = async (req, res) => {
 // @route   GET /api/candidates/search
 // INTENTIONAL ISSUE: This route does in-memory filtering after fetching all docs
 const searchCandidates = async (req, res) => {
-  const { q, status, skills, minExp, maxExp } = req.query;
+  const { q, status, skills, minExp, maxExp, page=1, limit=10} = req.query;
 
   try {
     // INTENTIONAL ISSUE: Fetches ALL candidates then filters — should use $text or $regex query
-    let candidates = await Candidate.find({}).sort({ createdAt: -1 });
+    // let candidates = await Candidate.find({}).sort({ createdAt: -1 });
+    const queryCond={};
 
     if (q) {
-      const query = q.toLowerCase();
-      candidates = candidates.filter(c =>
-        c.firstName.toLowerCase().includes(query) ||
-        c.lastName.toLowerCase().includes(query) ||
-        c.email.toLowerCase().includes(query) ||
-        c.currentTitle.toLowerCase().includes(query) ||
-        c.currentCompany.toLowerCase().includes(query)
-      );
+      const searchKeyWord = new RegExp(q,'i')//case insensitive
+      queryCond.$or=[
+        {firstName:searchKeyWord},
+        {lastName:searchKeyWord},
+        {email:searchKeyWord},
+        {currentTitle:searchKeyWord},
+        {currentCompany:searchKeyWord},
+      ]
     }
 
     if (status) {
-      candidates = candidates.filter(c => c.status === status);
+      queryCond.status = status
     }
 
     if (skills) {
-      const skillList = skills.split(',').map(s => s.trim().toLowerCase());
-      candidates = candidates.filter(c =>
-        skillList.some(skill =>
-          c.skills.map(s => s.toLowerCase()).includes(skill)
-        )
-      );
+      // const skillList = skills.split(',').map(s => s.trim().toLowerCase());
+      const skillList = skills.split(',').map(s => new RegExp(`^${s.trim()}$`,'i'));
+      queryCond.skills= {$all:skillList}
     }
 
-    if (minExp) {
-      candidates = candidates.filter(c => c.experienceYears >= parseInt(minExp));
+    if(minExp || maxExp){
+      queryCond.experienceYears={};
+      if(minExp) queryCond.experienceYears.$gte = parseInt(minExp,10);
+      if(maxExp) queryCond.experienceYears.$lte = parseInt(maxExp,10);
     }
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const skip = (pageNum-1) * limitNum;
 
-    if (maxExp) {
-      candidates = candidates.filter(c => c.experienceYears <= parseInt(maxExp));
-    }
+    const [candidates,total] = await Promise.all([
+      Candidate.find(queryCond)
+      .skip(skip)
+      .limit(limitNum)
+      .sort({createdAt:-1}),
+      Candidate.countDocuments(queryCond)
+    ])
 
-    res.json({ candidates, total: candidates.length });
+    res.json({ success:true, data:candidates,
+      pagination:{
+        totalItems:total,
+         currentPage:pageNum,
+        totalPages:Math.ceil(total/limitNum),
+        itemsPerPage:limitNum
+      }
+     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });

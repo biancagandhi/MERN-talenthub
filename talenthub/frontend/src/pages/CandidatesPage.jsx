@@ -4,13 +4,14 @@ import {
   Box, Card, CardContent, Typography, Button, TextField, InputAdornment,
   Chip, Avatar, IconButton, Select, MenuItem, FormControl, InputLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Paper, Tooltip, CircularProgress, Menu, Divider, Grid,
+  Paper, Tooltip, CircularProgress, Menu, Divider, Grid, Pagination, Stack
 } from '@mui/material'
 import {
   Search, PersonAdd, Edit, Delete, Visibility, MoreVert,
   FilterList, Clear,
 } from '@mui/icons-material'
 import { candidatesApi } from '../api'
+import EmptyState from '../components/common/EmptyState'
 
 // INTENTIONAL ISSUE: Entire page is one massive component (~400 lines)
 // INTENTIONAL ISSUE: All data fetched and stored in component state — no global state
@@ -39,81 +40,114 @@ export default function CandidatesPage() {
   const navigate = useNavigate()
 
   const [candidates, setCandidates] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [skillsFilter, setSkillsFilter] = useState('')
+  const [minExp, setMinExp] = useState(1)
+  const [maxExp, setMiaxExp] = useState(50)
   const [sourceFilter, setSourceFilter] = useState('')
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
   const [anchorEl, setAnchorEl] = useState(null)
   const [selectedCandidate, setSelectedCandidate] = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [pagination,setPagination] = useState({currentPage:1, totalPages:1, totalItems:0});
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(()=>{
+    const timer = setTimeout(()=>{
+      setDebouncedSearch(searchQuery);
+    },1000)
+    return ()=>clearTimeout(timer);
+  },[searchQuery]);//waits 500ms after typing stops
 
   // INTENTIONAL ISSUE: Fetch runs in useEffect inside the component
   useEffect(() => {
-    const fetchCandidates = async () => {
+    fetchCandidates()
+  }, [page, limit, debouncedSearch, statusFilter, sourceFilter, skillsFilter, minExp, maxExp]);
+
+   const fetchCandidates = async () => {
       try {
         setLoading(true)
-        const { data } = await candidatesApi.getAll()
-        setCandidates(data.candidates || [])
+        let response;
+        const hasFilters = debouncedSearch || statusFilter || sourceFilter || skillsFilter || minExp!==1 || maxExp!==50;
+        if(hasFilters){
+          response = await candidatesApi.search({
+            q:debouncedSearch,
+            status:statusFilter,
+            source:sourceFilter,
+            skills:skillsFilter, minExp, maxExp, page,limit
+          })
+        } else{
+          response = await candidatesApi.getAll(page,limit);
+          console.log("response",response.data)
+        }
+        // const { data } = await candidatesApi.getAll(page,limit)
+        // console.log("data",data);
+        setCandidates(response.data.data);
+        setPagination(response.data.pagination);
       } catch (err) {
         console.error(err)
         // INTENTIONAL ISSUE: No error state set — user sees empty list
+        toast.error('Unable to load candidates')
       } finally {
         setLoading(false)
       }
     }
-    fetchCandidates()
-  }, [])
+
+
 
   // INTENTIONAL ISSUE: All filtering done client-side — no server-side search or pagination
   // INTENTIONAL ISSUE: This runs on every render with no useMemo
-  const getFilteredCandidates = () => {
-    let result = [...candidates]
+  // const getFilteredCandidates = () => {
+  //   let result = [...candidates]
 
-    // INTENTIONAL ISSUE: Search fires on every character change — no debounce
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(c =>
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
-        c.email.toLowerCase().includes(q) ||
-        (c.currentTitle || '').toLowerCase().includes(q) ||
-        (c.currentCompany || '').toLowerCase().includes(q) ||
-        (c.skills || []).some(s => s.toLowerCase().includes(q))
-      )
-    }
+  //   // INTENTIONAL ISSUE: Search fires on every character change — no debounce
+  //   if (searchQuery) {
+  //     const q = searchQuery.toLowerCase()
+  //     result = result.filter(c =>
+  //       `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
+  //       c.email.toLowerCase().includes(q) ||
+  //       (c.currentTitle || '').toLowerCase().includes(q) ||
+  //       (c.currentCompany || '').toLowerCase().includes(q) ||
+  //       (c.skills || []).some(s => s.toLowerCase().includes(q))
+  //     )
+  //   }
 
-    if (statusFilter) {
-      result = result.filter(c => c.status === statusFilter)
-    }
+  //   if (statusFilter) {
+  //     result = result.filter(c => c.status === statusFilter)
+  //   }
 
-    if (sourceFilter) {
-      result = result.filter(c => c.source === sourceFilter)
-    }
+  //   if (sourceFilter) {
+  //     result = result.filter(c => c.source === sourceFilter)
+  //   }
 
-    // INTENTIONAL ISSUE: Sorting also done client-side
-    result.sort((a, b) => {
-      let aVal = a[sortBy]
-      let bVal = b[sortBy]
-      if (sortBy === 'name') {
-        aVal = `${a.firstName} ${a.lastName}`
-        bVal = `${b.firstName} ${b.lastName}`
-      }
-      if (sortBy === 'createdAt' || sortBy === 'updatedAt') {
-        return sortOrder === 'asc'
-          ? new Date(aVal) - new Date(bVal)
-          : new Date(bVal) - new Date(aVal)
-      }
-      if (typeof aVal === 'string') {
-        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-      }
-      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal
-    })
+  //   // INTENTIONAL ISSUE: Sorting also done client-side
+  //   result.sort((a, b) => {
+  //     let aVal = a[sortBy]
+  //     let bVal = b[sortBy]
+  //     if (sortBy === 'name') {
+  //       aVal = `${a.firstName} ${a.lastName}`
+  //       bVal = `${b.firstName} ${b.lastName}`
+  //     }
+  //     if (sortBy === 'createdAt' || sortBy === 'updatedAt') {
+  //       return sortOrder === 'asc'
+  //         ? new Date(aVal) - new Date(bVal)
+  //         : new Date(bVal) - new Date(aVal)
+  //     }
+  //     if (typeof aVal === 'string') {
+  //       return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+  //     }
+  //     return sortOrder === 'asc' ? aVal - bVal : bVal - aVal
+  //   })
 
-    return result
-  }
+  //   return result
+  // }
 
-  const filtered = getFilteredCandidates()
+  // const filtered = getFilteredCandidates()
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this candidate?')) return
@@ -123,7 +157,8 @@ export default function CandidatesPage() {
       setCandidates(prev => prev.filter(c => c._id !== id))
     } catch (err) {
       console.error(err)
-      alert('Failed to delete candidate')
+      // alert('Failed to delete candidate')
+      toast.error('Could not delete candidate')
     } finally {
       setDeleteLoading(false)
       setAnchorEl(null)
@@ -145,7 +180,21 @@ export default function CandidatesPage() {
         <Box>
           <Typography variant="h5">Candidates</Typography>
           <Typography variant="body2" color="text.secondary">
-            {loading ? '...' : `${filtered.length.toLocaleString()} of ${candidates.length.toLocaleString()} candidates`}
+            {/* {loading ? '...' : `${filtered.length.toLocaleString()} of ${candidates?.pagination?.totalPages ?? 0} candidates`} */}
+            <stack direction='row' justifyContent='center'>
+
+              <Pagination
+                page={page}
+                count={pagination?.totalPages}
+                color='primary'
+                onChange={(e, v) => {
+                  setPage(v);
+                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                }}
+              />
+            </stack>
+            Showing {(page-1)* limit+1}-{Math.min(page*limit, pagination?.totalItems)} of { " "}
+            {pagination?.totalItems} Candidates
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<PersonAdd />} onClick={() => navigate('/candidates/new')}>
@@ -245,7 +294,7 @@ export default function CandidatesPage() {
               </TableHead>
               <TableBody>
                 {/* INTENTIONAL ISSUE: Renders ALL filtered records — no pagination */}
-                {filtered.map((candidate) => (
+                {Array.isArray(candidates)&& candidates.length>0 && candidates.map((candidate) => (
                   <TableRow
                     key={candidate._id}
                     hover
@@ -319,14 +368,15 @@ export default function CandidatesPage() {
                       </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
+                ) )}
               </TableBody>
             </Table>
             {/* INTENTIONAL ISSUE: No empty state component — just an empty table */}
-            {filtered.length === 0 && !loading && (
-              <Box sx={{ py: 6, textAlign: 'center' }}>
-                <Typography color="text.secondary">No candidates found.</Typography>
-              </Box>
+            {Array.isArray(candidates) && candidates.length === 0 && !loading && (
+              // <Box sx={{ py: 6, textAlign: 'center' }}>
+              //   <Typography color="text.secondary">No candidates found.</Typography>
+              // </Box>
+              <EmptyState title="No Candidate Found" message="No Candidates match your current search."/>
             )}
           </TableContainer>
         )}

@@ -10,22 +10,48 @@ const User = require('../models/User');
 // @route   GET /api/jobs
 const getJobs = async (req, res) => {
   try {
-    const { status, department, type } = req.query;
+    const { q,status,department, type, page=1, limit=10  } = req.query;
 
     let filter = {};
+    if(q){
+      const regex = new RegExp(q,"i");
+      filter.$or=[
+        {title:regex},
+        {department:regex},
+        {location:regex},
+        {description:regex}
+      ]
+    }
     if (status) filter.status = status;
     if (department) filter.department = department;
     if (type) filter.type = type;
+    const pageNum = Number(page);
+    const limitNum = Number(limit);
+    const skip = (pageNum-1) * limitNum;
 
     // INTENTIONAL ISSUE: No pagination — returns all matching jobs
-    const jobs = await Job.find(filter)
-      .populate('hiringManager', 'name email')
-      .populate('recruiters', 'name email')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 });
+    const [jobs,total] = await Promise.all([
+
+      Job.find(filter)
+      .skip(skip)
+            .limit(limitNum)
+        .populate('hiringManager', 'name email')
+        .populate('recruiters', 'name email')
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 }),
+        Job.countDocuments(filter)
+    ])
 
     // INTENTIONAL ISSUE: Inconsistent — returns array directly (candidates route returns { candidates, total })
-    res.json(jobs);
+    // res.json(jobs);
+     res.json({ success:true, data:jobs,
+      pagination:{
+        totalItems:total,
+         currentPage:pageNum,
+        totalPages:Math.ceil(total/limitNum),
+        itemsPerPage:limitNum
+      }
+     });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
@@ -183,6 +209,12 @@ const getDepartments = async (req, res) => {
   try {
     // INTENTIONAL ISSUE: distinct() query — not cached, re-computed every call
     const departments = await Job.distinct('department');
+    // const departments = await Job.aggregate([
+    //   {$group:{_id:"$department"}},
+    //   {$sort:{_id:1}}
+    // ])
+    // const departmentList = departments.map(d=>d.id).filter(Boolean)
+    // res.json(departmentList)
     res.json(departments.sort());
   } catch (error) {
     console.error(error);

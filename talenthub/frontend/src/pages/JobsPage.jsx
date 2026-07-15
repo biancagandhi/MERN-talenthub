@@ -4,10 +4,11 @@ import {
   Box, Card, CardContent, Typography, Button, TextField, InputAdornment,
   Chip, IconButton, Select, MenuItem, FormControl, InputLabel,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Tooltip, CircularProgress, Grid,
+  Tooltip, CircularProgress, Grid,Pagination, Stack
 } from '@mui/material'
 import { Search, Add, Edit, Delete, Visibility, Clear } from '@mui/icons-material'
 import { jobsApi } from '../api'
+import EmptyState from '../components/common/EmptyState'
 
 // INTENTIONAL ISSUE: Duplicate structure of CandidatesPage — same pattern copy-pasted
 // INTENTIONAL ISSUE: All client-side filtering and sorting — no server-side search or pagination
@@ -32,6 +33,7 @@ export default function JobsPage() {
   const navigate = useNavigate()
 
   const [jobs, setJobs] = useState([])
+  const [departments,setDepartments] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -39,66 +41,84 @@ export default function JobsPage() {
   const [typeFilter, setTypeFilter] = useState('')
   const [sortBy, setSortBy] = useState('createdAt')
   const [sortOrder, setSortOrder] = useState('desc')
+   const [debouncedSearch, setDebouncedSearch] = useState("");
+     const [pagination,setPagination] = useState({currentPage:1, totalPages:1, totalItems:0});
+     const [page, setPage] = useState(1);
+     const [limit, setLimit] = useState(10);
 
   // INTENTIONAL ISSUE: Does NOT call /jobs/departments to populate the department dropdown dynamically
   // Department filter is missing — just a text search that users have to know the exact value for
 
+    useEffect(()=>{
+      const timer = setTimeout(()=>{
+        setDebouncedSearch(searchQuery);
+      },1000)
+      return ()=>clearTimeout(timer);
+    },[searchQuery]);//waits 500ms after typing stops
+
   useEffect(() => {
-    const fetchJobs = async () => {
-      try {
-        setLoading(true)
-        const { data } = await jobsApi.getAll()
-        setJobs(Array.isArray(data) ? data : [])
-      } catch (err) {
+    const pageData = async()=>{
+      setLoading(true);
+      try{
+        const jobRes= await jobsApi.getAll({q:debouncedSearch,status:statusFilter,department:departmentFilter,type:typeFilter,page,limit});
+        console.log(jobRes)
+        setJobs(Array.isArray(jobRes.data.data) ? jobRes.data.data : [])
+        setPagination(jobRes.data.pagination)
+
+        const {data} = await jobsApi.getDepartments();
+        console.log(data)
+        setDepartments(data)
+      }catch(err){
         console.error(err)
-      } finally {
-        setLoading(false)
+        toast.error('unable to load jobs')
+      } finally{
+        setLoading(false);
       }
     }
-    fetchJobs()
-  }, [])
+    pageData()
+  }, [debouncedSearch,statusFilter,departmentFilter,typeFilter,page,limit])
 
   // INTENTIONAL ISSUE: Heavy client-side filtering on every render, no memoization
-  const getFilteredJobs = () => {
-    let result = [...jobs]
+  // const getFilteredJobs = () => {
+  //   let result = [...jobs]
 
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(j =>
-        j.title.toLowerCase().includes(q) ||
-        j.department.toLowerCase().includes(q) ||
-        (j.location || '').toLowerCase().includes(q) ||
-        (j.skills || []).some(s => s.toLowerCase().includes(q))
-      )
-    }
+  //   if (searchQuery) {
+  //     const q = searchQuery.toLowerCase()
+  //     result = result.filter(j =>
+  //       j.title.toLowerCase().includes(q) ||
+  //       j.department.toLowerCase().includes(q) ||
+  //       (j.location || '').toLowerCase().includes(q) ||
+  //       (j.skills || []).some(s => s.toLowerCase().includes(q))
+  //     )
+  //   }
 
-    if (statusFilter) {
-      result = result.filter(j => j.status === statusFilter)
-    }
+  //   if (statusFilter) {
+  //     result = result.filter(j => j.status === statusFilter)
+  //   }
 
-    if (departmentFilter) {
-      result = result.filter(j => j.department.toLowerCase().includes(departmentFilter.toLowerCase()))
-    }
+  //   if (departmentFilter) {
+  //     result = result.filter(j => j.department.toLowerCase().includes(departmentFilter.toLowerCase()))
+  //   }
 
-    if (typeFilter) {
-      result = result.filter(j => j.type === typeFilter)
-    }
+  //   if (typeFilter) {
+  //     result = result.filter(j => j.type === typeFilter)
+  //   }
 
-    result.sort((a, b) => {
-      let aVal = a[sortBy], bVal = b[sortBy]
-      if (sortBy === 'createdAt' || sortBy === 'applicationDeadline') {
-        return sortOrder === 'asc' ? new Date(aVal) - new Date(bVal) : new Date(bVal) - new Date(aVal)
-      }
-      if (typeof aVal === 'string') {
-        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
-      }
-      return sortOrder === 'asc' ? (aVal || 0) - (bVal || 0) : (bVal || 0) - (aVal || 0)
-    })
+  //   result.sort((a, b) => {
+  //     let aVal = a[sortBy], bVal = b[sortBy]
+  //     if (sortBy === 'createdAt' || sortBy === 'applicationDeadline') {
+  //       return sortOrder === 'asc' ? new Date(aVal) - new Date(bVal) : new Date(bVal) - new Date(aVal)
+  //     }
+  //     if (typeof aVal === 'string') {
+  //       return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+  //     }
+  //     return sortOrder === 'asc' ? (aVal || 0) - (bVal || 0) : (bVal || 0) - (aVal || 0)
+  //   })
 
-    return result
-  }
+  //   return result
+  // }
 
-  const filtered = getFilteredJobs()
+  // const filtered = getFilteredJobs()
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this job posting?')) return
@@ -107,7 +127,8 @@ export default function JobsPage() {
       setJobs(prev => prev.filter(j => j._id !== id))
     } catch (err) {
       console.error(err)
-      alert('Failed to delete job')
+      // alert('Failed to delete job')
+      toast.error('failed to delete job')
     }
   }
 
@@ -119,7 +140,21 @@ export default function JobsPage() {
         <Box>
           <Typography variant="h5">Jobs</Typography>
           <Typography variant="body2" color="text.secondary">
-            {loading ? '...' : `${filtered.length} of ${jobs.length} positions`}
+            <stack direction='row' justifyContent='center'>
+            
+                          <Pagination
+                            page={page}
+                            count={pagination?.totalPages}
+                            color='primary'
+                            onChange={(e, v) => {
+                              setPage(v);
+                              window.scrollTo({ top: 0, behavior: 'smooth' })
+                            }}
+                          />
+                        </stack>
+                        Showing {(page-1)* limit+1}-{Math.min(page*limit, pagination?.totalItems)} of { " "}
+                        {pagination?.totalItems} positions
+            {/* {loading ? '...' : `${filtered.length} of ${jobs.length} positions`} */}
           </Typography>
         </Box>
         <Button variant="contained" startIcon={<Add />} onClick={() => navigate('/jobs/new')}>
@@ -148,10 +183,17 @@ export default function JobsPage() {
             </Grid>
             <Grid item xs={6} md={2}>
               {/* INTENTIONAL ISSUE: Department filter is just a freetext field — not populated from API */}
-              <TextField
+              {/* <TextField
                 fullWidth size="small" label="Department" placeholder="e.g. Engineering"
                 value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}
-              />
+              /> */}
+               <FormControl fullWidth size="small">
+                <InputLabel>Department</InputLabel>
+                <Select value={departmentFilter} onChange={(e)=>setDepartmentFilter(e.target.value)} label='Department'>
+                <MenuItem value="">All Departments</MenuItem>
+                {departments.map((dept)=>(<MenuItem key={dept} value={dept}>{dept}</MenuItem>))}
+              </Select>
+              </FormControl>
             </Grid>
             <Grid item xs={6} md={2}>
               <FormControl fullWidth size="small">
@@ -217,7 +259,7 @@ export default function JobsPage() {
               </TableHead>
               <TableBody>
                 {/* INTENTIONAL ISSUE: No pagination — all jobs rendered */}
-                {filtered.map((job) => (
+                {jobs.map((job) => (
                   <TableRow key={job._id} hover sx={{ cursor: 'pointer' }} onClick={() => navigate(`/jobs/${job._id}`)}>
                     <TableCell>
                       <Typography variant="body2" fontWeight={500}>{job.title}</Typography>
@@ -272,10 +314,11 @@ export default function JobsPage() {
                 ))}
               </TableBody>
             </Table>
-            {filtered.length === 0 && !loading && (
-              <Box sx={{ py: 6, textAlign: 'center' }}>
-                <Typography color="text.secondary">No jobs found.</Typography>
-              </Box>
+            {jobs.length === 0 && !loading && (
+              // <Box sx={{ py: 6, textAlign: 'center' }}>
+              //   <Typography color="text.secondary">No jobs found.</Typography>
+              // </Box>
+              <EmptyState title='No Jobs Found' message='no jobs match your current filters'/>
             )}
           </TableContainer>
         )}
