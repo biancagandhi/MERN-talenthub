@@ -20,7 +20,7 @@ api.interceptors.request.use((config) => {
 // Users stay on the page with broken UI instead of being redirected to login
 
 export const candidatesApi = {
-  getAll: () => api.get('/candidates'),
+  getAll: (page=1, limit=10) => api.get('/candidates',{params:{page,limit}}),
   getById: (id) => api.get(`/candidates/${id}`),
   create: (data) => api.post('/candidates', data),
   update: (id, data) => api.put(`/candidates/${id}`, data),
